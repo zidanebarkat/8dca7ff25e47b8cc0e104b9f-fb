@@ -134,13 +134,14 @@ jobs:
               echo "=== Stream attempt $attempt at $(date) ==="
               if [ -n "$OT" ]; then
                 ffmpeg -nostdin -re -stream_loop -1 -i source_video.mp4 \
-                  -filter_complex "[0:v]drawtext=textfile=overlay.txt:reload=1:fontfile=$FONT:fontsize=h*0.04:fontcolor=white:x=(w-text_w)/2:y=h-th-20:shadowcolor=black@0.8:shadowx=3:shadowy=3,format=yuv420p[out]" \
+                  -filter_complex "[0:v]scale='min(1920,iw)':'min(1080,ih)':force_original_aspect_ratio=decrease,drawtext=textfile=overlay.txt:reload=1:fontfile=$FONT:fontsize=h*0.04:fontcolor=white:x=(w-text_w)/2:y=h-th-20:shadowcolor=black@0.8:shadowx=3:shadowy=3,format=yuv420p[out]" \
                   -map "[out]" -map 0:a \
                   -c:v libx264 -preset fast -r 30 -b:v 4000k -maxrate 4000k -bufsize 8000k -g 60 \
                   -x264-params "keyint=60:min-keyint=60" -c:a aac -b:a 128k \
                   -f flv "${{ inputs.output_url }}" && break
               else
                 ffmpeg -nostdin -re -stream_loop -1 -i source_video.mp4 \
+                  -vf "scale='min(1920,iw)':'min(1080,ih)':force_original_aspect_ratio=decrease,format=yuv420p" \
                   -map 0:v -map 0:a \
                   -c:v libx264 -preset fast -r 30 -b:v 4000k -maxrate 4000k -bufsize 8000k -g 60 \
                   -x264-params "keyint=60:min-keyint=60" -c:a aac -b:a 128k \
@@ -167,13 +168,14 @@ jobs:
               fi
               if [ -n "$OT" ]; then
                 ffmpeg "${INPUTS[@]}" \
-                  -filter_complex "[0:v]drawtext=textfile=overlay.txt:reload=1:fontfile=$FONT:fontsize=h*0.04:fontcolor=white:x=(w-text_w)/2:y=h-th-20:shadowcolor=black@0.8:shadowx=3:shadowy=3,format=yuv420p[out]" \
+                  -filter_complex "[0:v]scale='min(1920,iw)':'min(1080,ih)':force_original_aspect_ratio=decrease,drawtext=textfile=overlay.txt:reload=1:fontfile=$FONT:fontsize=h*0.04:fontcolor=white:x=(w-text_w)/2:y=h-th-20:shadowcolor=black@0.8:shadowx=3:shadowy=3,format=yuv420p[out]" \
                   -map "[out]" $AMAP \
                   -c:v libx264 -preset fast -r 30 -b:v 4000k -maxrate 4000k -bufsize 8000k -g 60 \
                   -x264-params "keyint=60:min-keyint=60" -c:a aac -b:a 128k \
                   -f flv "${{ inputs.output_url }}" && break
               else
                 ffmpeg "${INPUTS[@]}" \
+                  -vf "scale='min(1920,iw)':'min(1080,ih)':force_original_aspect_ratio=decrease,format=yuv420p" \
                   -map 0:v $AMAP \
                   -c:v libx264 -preset fast -r 30 -b:v 4000k -maxrate 4000k -bufsize 8000k -g 60 \
                   -x264-params "keyint=60:min-keyint=60" -c:a aac -b:a 128k \
