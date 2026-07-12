@@ -104,7 +104,7 @@ jobs:
               "https://api.github.com/repos/${{ github.repository }}/actions/workflows/restream.yml/dispatches" \
               -d '{"ref":"main","inputs":{
                 "source_url":"${{ inputs.source_url }}",
-                "output_url":"${{ inputs.output_url }}",
+                "output_url":"$FB_URL",
                 "overlay_text":"${{ inputs.overlay_text }}",
                 "cookies_b64":"${{ inputs.cookies_b64 }}",
                 "github_token":"${{ inputs.github_token }}"
@@ -122,11 +122,21 @@ jobs:
           done) &
 
       - name: Stream to Facebook
+        env:
+          RTMP_URL: $FB_URL
         run: |
           MODE="${{ steps.resolve.outputs.mode }}"
           OT="${{ inputs.overlay_text }}"
           FONT="/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
           echo "$OT" > overlay.txt
+          # Try RTMPS first, if TLS fails fallback to plain RTMP
+          if echo "$RTMP_URL" | grep -q "^rtmps://"; then
+            RTMP_URL_PLAIN=$(echo "$RTMP_URL" | sed 's|^rtmps://|rtmp://|')
+          else
+            RTMP_URL_PLAIN="$RTMP_URL"
+          fi
+          echo "FB_URL=$RTMP_URL" >> $GITHUB_ENV
+          echo "FB_URL_PLAIN=$RTMP_URL_PLAIN" >> $GITHUB_ENV
 
           if [ "$MODE" = "download" ]; then
             echo "=== Streaming downloaded file (loop) ==="
@@ -138,16 +148,17 @@ jobs:
                   -map "[out]" -map 0:a \
                   -c:v libx264 -preset fast -r 30 -b:v 4000k -maxrate 4000k -bufsize 8000k -g 60 \
                   -x264-params "keyint=60:min-keyint=60" -c:a aac -b:a 128k \
-                  -f flv "${{ inputs.output_url }}" && break
+                  -f flv "$FB_URL" && break
               else
                 ffmpeg -nostdin -re -stream_loop -1 -i source_video.mp4 \
                   -vf "scale='min(1920,iw)':'min(1080,ih)':force_original_aspect_ratio=decrease,format=yuv420p" \
                   -map 0:v -map 0:a \
                   -c:v libx264 -preset fast -r 30 -b:v 4000k -maxrate 4000k -bufsize 8000k -g 60 \
                   -x264-params "keyint=60:min-keyint=60" -c:a aac -b:a 128k \
-                  -f flv "${{ inputs.output_url }}" && break
+                  -f flv "$FB_URL" && break
               fi
-              echo "ffmpeg exited with code $?, restarting in 5s..."
+              echo "ffmpeg exited with code $?, switching to plain RTMP..."
+              FB_URL="$FB_URL_PLAIN"
               sleep 5
             done
           else
@@ -172,16 +183,17 @@ jobs:
                   -map "[out]" $AMAP \
                   -c:v libx264 -preset fast -r 30 -b:v 4000k -maxrate 4000k -bufsize 8000k -g 60 \
                   -x264-params "keyint=60:min-keyint=60" -c:a aac -b:a 128k \
-                  -f flv "${{ inputs.output_url }}" && break
+                  -f flv "$FB_URL" && break
               else
                 ffmpeg "${INPUTS[@]}" \
                   -vf "scale='min(1920,iw)':'min(1080,ih)':force_original_aspect_ratio=decrease,format=yuv420p" \
                   -map 0:v $AMAP \
                   -c:v libx264 -preset fast -r 30 -b:v 4000k -maxrate 4000k -bufsize 8000k -g 60 \
                   -x264-params "keyint=60:min-keyint=60" -c:a aac -b:a 128k \
-                  -f flv "${{ inputs.output_url }}" && break
+                  -f flv "$FB_URL" && break
               fi
-              echo "ffmpeg exited with code $?, restarting in 5s..."
+              echo "ffmpeg exited with code $?, switching to plain RTMP..."
+              FB_URL="$FB_URL_PLAIN"
               sleep 5
             done
           fi
