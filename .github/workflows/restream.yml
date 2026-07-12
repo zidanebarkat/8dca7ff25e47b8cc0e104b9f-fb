@@ -167,7 +167,6 @@ jobs:
           echo "$OT" > overlay.txt
 
           FB_URL="${{ inputs.output_url }}"
-          FB_URL_PLAIN=$(echo "$FB_URL" | sed 's|^rtmps://|rtmp://|; s|:443/|:1935/|')
           DUR="${{ inputs.source_duration }}"
           echo "Output URL: $FB_URL (duration: ${DUR}s, chat: $CHAT)"
           DUR_FLAG=""
@@ -194,9 +193,8 @@ jobs:
                 -c:v libx264 -preset fast -r 30 -b:v 4000k -maxrate 4000k -bufsize 8000k -g 60 \
                 -x264-params "keyint=60:min-keyint=60" -c:a aac -b:a 128k \
                 -f flv "$FB_URL" && break
-              echo "ffmpeg exited with code $?, switching to plain RTMP..."
-              FB_URL="$FB_URL_PLAIN"
-              sleep 5
+              echo "ffmpeg exited with code $?, retrying in 10s..."
+              sleep 10
             done
           else
             echo "=== Streaming live HLS ==="
@@ -221,9 +219,8 @@ jobs:
                 -c:v libx264 -preset fast -r 30 -b:v 4000k -maxrate 4000k -bufsize 8000k -g 60 \
                 -x264-params "keyint=60:min-keyint=60" -c:a aac -b:a 128k \
                 -f flv "$FB_URL" && break
-              echo "ffmpeg exited with code $?, switching to plain RTMP..."
-              FB_URL="$FB_URL_PLAIN"
-              sleep 5
+              echo "ffmpeg exited with code $?, retrying in 10s..."
+              sleep 10
             done
           fi
 
