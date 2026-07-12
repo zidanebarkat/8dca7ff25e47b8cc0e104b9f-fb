@@ -167,7 +167,7 @@ jobs:
           echo "$OT" > overlay.txt
 
           FB_URL="${{ inputs.output_url }}"
-          FB_URL_PLAIN=$(echo "$FB_URL" | sed 's|^rtmps://|rtmp://|')
+          FB_URL_PLAIN=$(echo "$FB_URL" | sed 's|^rtmps://|rtmp://|; s|:443/|:1935/|')
           DUR="${{ inputs.source_duration }}"
           echo "Output URL: $FB_URL (duration: ${DUR}s, chat: $CHAT)"
           DUR_FLAG=""
