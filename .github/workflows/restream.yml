@@ -104,7 +104,7 @@ jobs:
               "https://api.github.com/repos/${{ github.repository }}/actions/workflows/restream.yml/dispatches" \
               -d '{"ref":"main","inputs":{
                 "source_url":"${{ inputs.source_url }}",
-                "output_url":"$FB_URL",
+                "output_url":"${{ inputs.output_url }}",
                 "overlay_text":"${{ inputs.overlay_text }}",
                 "cookies_b64":"${{ inputs.cookies_b64 }}",
                 "github_token":"${{ inputs.github_token }}"
@@ -122,21 +122,15 @@ jobs:
           done) &
 
       - name: Stream to Facebook
-        env:
-          RTMP_URL: $FB_URL
         run: |
           MODE="${{ steps.resolve.outputs.mode }}"
           OT="${{ inputs.overlay_text }}"
           FONT="/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
           echo "$OT" > overlay.txt
-          # Try RTMPS first, if TLS fails fallback to plain RTMP
-          if echo "$RTMP_URL" | grep -q "^rtmps://"; then
-            RTMP_URL_PLAIN=$(echo "$RTMP_URL" | sed 's|^rtmps://|rtmp://|')
-          else
-            RTMP_URL_PLAIN="$RTMP_URL"
-          fi
-          echo "FB_URL=$RTMP_URL" >> $GITHUB_ENV
-          echo "FB_URL_PLAIN=$RTMP_URL_PLAIN" >> $GITHUB_ENV
+
+          FB_URL="${{ inputs.output_url }}"
+          FB_URL_PLAIN=$(echo "$FB_URL" | sed 's|^rtmps://|rtmp://|')
+          echo "Output URL: $FB_URL"
 
           if [ "$MODE" = "download" ]; then
             echo "=== Streaming downloaded file (loop) ==="
