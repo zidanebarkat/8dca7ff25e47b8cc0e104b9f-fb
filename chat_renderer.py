@@ -129,9 +129,21 @@ def main():
         if not args.access_token:
             print("ERROR: Facebook requires --access-token", file=sys.stderr)
             sys.exit(1)
+        token = args.access_token
+        config_url = os.environ.get('CONFIG_URL', '')
         while True:
             try:
-                fb_poll_comments(args.video_id, args.access_token, messages, args.max_messages)
+                if config_url:
+                    try:
+                        resp = urllib.request.urlopen(config_url, timeout=5)
+                        cfg = json.loads(resp.read())
+                        new_token = cfg.get('fb_chat_token', '')
+                        if new_token and new_token != token:
+                            token = new_token
+                            print("Refreshed FB token from config", file=sys.stderr)
+                    except Exception:
+                        pass
+                fb_poll_comments(args.video_id, token, messages, args.max_messages)
                 write_chat_file(messages, args.output)
             except Exception as e:
                 print(f"Error: {e}", file=sys.stderr)
