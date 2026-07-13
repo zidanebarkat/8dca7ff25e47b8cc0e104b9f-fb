@@ -52,16 +52,11 @@ jobs:
         run: |
           RAW="${{ inputs.cookies_b64 }}"
           if [ -n "$RAW" ]; then
-            if echo "$RAW" | base64 -d &>/dev/null && echo "$RAW" | base64 -d 2>/dev/null | head -1 | grep -qi 'netscape\|#.*cookie'; then
-              echo "$RAW" | base64 -d > cookies.txt
-              echo "Cookies decoded from base64 ($(wc -c < cookies.txt) bytes)"
-            elif echo "$RAW" | head -1 | grep -qi 'netscape\|#.*cookie'; then
-              echo "$RAW" > cookies.txt
-              echo "Cookies used as raw text ($(wc -c < cookies.txt) bytes)"
-            else
-              echo "$RAW" | base64 -d > cookies.txt 2>/dev/null || echo "$RAW" > cookies.txt
-              echo "Cookies saved ($(wc -c < cookies.txt) bytes)"
-            fi
+            echo "$RAW" | base64 -d > cookies.txt 2>/dev/null || echo "$RAW" > cookies.txt
+            LINES=$(wc -l < cookies.txt)
+            BYTES=$(wc -c < cookies.txt)
+            HEAD=$(head -1 cookies.txt)
+            echo "Cookies: $BYTES bytes, $LINES lines, first line: $HEAD"
             echo "COOKIES=--cookies cookies.txt" >> $GITHUB_ENV
           else
             echo "COOKIES=" >> $GITHUB_ENV
@@ -72,7 +67,9 @@ jobs:
         id: resolve
         run: |
           echo "=== Trying live HLS first ==="
-          urls=$(yt-dlp --impersonate chrome --remote-components ejs:github --extractor-args "youtube:player_client=web" $COOKIES -g --socket-timeout 30 "${{ inputs.source_url }}" 2>/tmp/yt_err.txt) || true
+          echo "COOKIES=$COOKIES"
+          [ -f cookies.txt ] && echo "cookies.txt exists: $(wc -c < cookies.txt) bytes" || echo "No cookies.txt file"
+          urls=$(yt-dlp --impersonate chrome --extractor-args "youtube:player_client=web" $COOKIES -g --socket-timeout 30 "${{ inputs.source_url }}" 2>/tmp/yt_err.txt) || true
           cat /tmp/yt_err.txt
           if [ -n "$urls" ]; then
             count=$(echo "$urls" | wc -l)
@@ -90,7 +87,7 @@ jobs:
             echo "Resolved as live stream"
           else
             echo "=== Not live, downloading video ==="
-            yt-dlp --impersonate chrome --remote-components ejs:github --extractor-args "youtube:player_client=web" $COOKIES \
+            yt-dlp --impersonate chrome --extractor-args "youtube:player_client=web" $COOKIES \
               -f "bestvideo[height<=720]+bestaudio/best[height<=720]/best" \
               --merge-output-format mp4 -o "source_video.mp4" \
               "${{ inputs.source_url }}" 2>&1 || true
