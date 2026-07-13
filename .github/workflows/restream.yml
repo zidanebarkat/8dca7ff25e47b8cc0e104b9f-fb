@@ -119,44 +119,30 @@ jobs:
 
           echo ""
           echo "=== Step 2: Try Piped API (YouTube proxy) ==="
+          echo 'import sys,json' > pick_stream.py
+          echo 'd=json.load(sys.stdin)' >> pick_stream.py
+          echo 'for s in d.get("videoStreams",[]):' >> pick_stream.py
+          echo '    q=s.get("quality",""); mt=s.get("mimeType","")' >> pick_stream.py
+          echo '    if "720" in q and "mp4" in mt: print(s.get("url","")); sys.exit(0)' >> pick_stream.py
+          echo 'for s in d.get("videoStreams",[]):' >> pick_stream.py
+          echo '    if "720" in s.get("quality",""): print(s.get("url","")); sys.exit(0)' >> pick_stream.py
+          echo 'for s in d.get("videoStreams",[]):' >> pick_stream.py
+          echo '    if not s.get("videoOnly",True) and s.get("url"): print(s.get("url","")); sys.exit(0)' >> pick_stream.py
+          echo 'if d.get("videoStreams"): print(d["videoStreams"][0].get("url",""))' >> pick_stream.py
           piped_download() {
             local video_url="$1"
-            # Extract video ID
             local vid=$(echo "$video_url" | grep -oP '(?:v=|live/|youtu\.be/)\K[\w-]+' | head -1)
-            if [ -z "$vid" ]; then
-              echo "Could not extract video ID from $video_url"
-              return 1
-            fi
+            if [ -z "$vid" ]; then echo "No video ID"; return 1; fi
             echo "Video ID: $vid"
-            # Try multiple Piped instances
             for INSTANCE in "pipedapi.kavin.rocks" "api.piped.yt" "pipedapi.adminforge.de" "piped-api.lunar.icu"; do
-              echo "--- Piped instance: $INSTANCE ---"
+              echo "--- Piped: $INSTANCE ---"
               local resp=$(curl -s --max-time 15 "https://$INSTANCE/streams/$vid" 2>/dev/null)
-              if echo "$resp" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('title',''))" 2>/dev/null | grep -q .; then
-                local title=$(echo "$resp" | python3 -c "import sys,json; print(json.load(sys.stdin).get('title','unknown'))" 2>/dev/null)
+              local title=$(echo "$resp" | python3 -c "import sys,json; print(json.load(sys.stdin).get('title',''))" 2>/dev/null)
+              if [ -n "$title" ] && [ "$title" != "" ]; then
                 echo "Title: $title"
-                # Get video stream URL (720p or best available)
-                local stream_url=$(echo "$resp" | python3 -c "
-import sys,json
-d=json.load(sys.stdin)
-streams = d.get('videoStreams',[])
-# prefer 720p mp4
-for s in streams:
-    if '720' in s.get('quality','') and 'mp4' in s.get('mimeType',''):
-        print(s['url']); sys.exit(0)
-for s in streams:
-    if '720' in s.get('quality',''):
-        print(s['url']); sys.exit(0)
-# fallback to any video stream
-for s in streams:
-    if s.get('videoOnly') == False and s.get('url'):
-        print(s['url']); sys.exit(0)
-# last resort: any stream
-if streams:
-    print(streams[0].get('url',''))
-" 2>/dev/null)
+                local stream_url=$(echo "$resp" | python3 pick_stream.py 2>/dev/null)
                 if [ -n "$stream_url" ] && [ "$stream_url" != "" ]; then
-                  echo "Downloading stream via Piped..."
+                  echo "Downloading via Piped..."
                   ffmpeg -y -i "$stream_url" -c copy -t 3600 source_video.mp4 2>&1 | tail -5 || true
                   if [ -f "source_video.mp4" ] && [ -s "source_video.mp4" ]; then
                     echo "Downloaded via Piped from $INSTANCE"
