@@ -118,7 +118,33 @@ jobs:
           fi
 
           echo ""
-          echo "=== Step 2: Try downloading video ==="
+          echo "=== Step 2: Try downloading video via cobalt API ==="
+          cobalt_download() {
+            local video_url="$1"
+            local resp=$(curl -s -X POST "https://api.cobalt.tools/api/json" \
+              -H "Content-Type: application/json" \
+              -H "Accept: application/json" \
+              -d "{\"url\":\"$video_url\",\"vCodec\":\"h264\",\"vQuality\":\"720\",\"isAudioOnly\":false}" 2>/dev/null)
+            echo "Cobalt response: $resp"
+            local dl_url=$(echo "$resp" | python3 -c "import sys,json; print(json.load(sys.stdin).get('url',''))" 2>/dev/null)
+            if [ -n "$dl_url" ] && [ "$dl_url" != "None" ]; then
+              curl -L -o source_video.mp4 "$dl_url" --max-time 600 2>&1 | tail -3
+              return 0
+            fi
+            return 1
+          }
+
+          if cobalt_download "$URL"; then
+            if [ -f "source_video.mp4" ] && [ -s "source_video.mp4" ]; then
+              SIZE=$(ls -lh source_video.mp4 | awk '{print $5}')
+              echo "mode=download" >> "$GITHUB_OUTPUT"
+              echo "=== Downloaded via cobalt: $SIZE ==="
+              exit 0
+            fi
+          fi
+
+          echo ""
+          echo "=== Step 3: Try downloading video via yt-dlp ==="
           if yt_dlp_download; then
             SIZE=$(ls -lh source_video.mp4 | awk '{print $5}')
             echo "mode=download" >> "$GITHUB_OUTPUT"
