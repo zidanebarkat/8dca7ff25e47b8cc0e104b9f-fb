@@ -121,13 +121,18 @@ jobs:
           echo "=== Step 2: Try downloading video via cobalt API ==="
           cobalt_download() {
             local video_url="$1"
-            local resp=$(curl -s -X POST "https://api.cobalt.tools/api/json" \
+            local resp=$(curl -s -X POST "https://api.cobalt.tools/" \
               -H "Content-Type: application/json" \
               -H "Accept: application/json" \
-              -d "{\"url\":\"$video_url\",\"vCodec\":\"h264\",\"vQuality\":\"720\",\"isAudioOnly\":false}" 2>/dev/null)
+              -d "{\"url\":\"$video_url\",\"videoQuality\":\"720\",\"youtubeVideoCodec\":\"h264\",\"filenameStyle\":\"basic\"}" 2>/dev/null)
             echo "Cobalt response: $resp"
-            local dl_url=$(echo "$resp" | python3 -c "import sys,json; print(json.load(sys.stdin).get('url',''))" 2>/dev/null)
-            if [ -n "$dl_url" ] && [ "$dl_url" != "None" ]; then
+            local status=$(echo "$resp" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status',''))" 2>/dev/null)
+            local dl_url=""
+            if [ "$status" = "tunnel" ] || [ "$status" = "redirect" ]; then
+              dl_url=$(echo "$resp" | python3 -c "import sys,json; print(json.load(sys.stdin).get('url',''))" 2>/dev/null)
+            fi
+            if [ -n "$dl_url" ] && [ "$dl_url" != "None" ] && [ "$dl_url" != "" ]; then
+              echo "Downloading from: $dl_url"
               curl -L -o source_video.mp4 "$dl_url" --max-time 600 2>&1 | tail -3
               return 0
             fi
