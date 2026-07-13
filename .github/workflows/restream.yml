@@ -118,38 +118,66 @@ jobs:
           fi
 
           echo ""
-          echo "=== Step 2: Try downloading video via cobalt API ==="
-          cobalt_download() {
+          echo "=== Step 2: Try Piped API (YouTube proxy) ==="
+          piped_download() {
             local video_url="$1"
-            local resp=$(curl -s -X POST "https://api.cobalt.tools/" \
-              -H "Content-Type: application/json" \
-              -H "Accept: application/json" \
-              -d "{\"url\":\"$video_url\",\"videoQuality\":\"720\",\"youtubeVideoCodec\":\"h264\",\"filenameStyle\":\"basic\"}" 2>/dev/null)
-            echo "Cobalt response: $resp"
-            local status=$(echo "$resp" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status',''))" 2>/dev/null)
-            local dl_url=""
-            if [ "$status" = "tunnel" ] || [ "$status" = "redirect" ]; then
-              dl_url=$(echo "$resp" | python3 -c "import sys,json; print(json.load(sys.stdin).get('url',''))" 2>/dev/null)
+            # Extract video ID
+            local vid=$(echo "$video_url" | grep -oP '(?:v=|live/|youtu\.be/)\K[\w-]+' | head -1)
+            if [ -z "$vid" ]; then
+              echo "Could not extract video ID from $video_url"
+              return 1
             fi
-            if [ -n "$dl_url" ] && [ "$dl_url" != "None" ] && [ "$dl_url" != "" ]; then
-              echo "Downloading from: $dl_url"
-              curl -L -o source_video.mp4 "$dl_url" --max-time 600 2>&1 | tail -3
-              return 0
-            fi
+            echo "Video ID: $vid"
+            # Try multiple Piped instances
+            for INSTANCE in "pipedapi.kavin.rocks" "api.piped.yt" "pipedapi.adminforge.de" "piped-api.lunar.icu"; do
+              echo "--- Piped instance: $INSTANCE ---"
+              local resp=$(curl -s --max-time 15 "https://$INSTANCE/streams/$vid" 2>/dev/null)
+              if echo "$resp" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('title',''))" 2>/dev/null | grep -q .; then
+                local title=$(echo "$resp" | python3 -c "import sys,json; print(json.load(sys.stdin).get('title','unknown'))" 2>/dev/null)
+                echo "Title: $title"
+                # Get video stream URL (720p or best available)
+                local stream_url=$(echo "$resp" | python3 -c "
+import sys,json
+d=json.load(sys.stdin)
+streams = d.get('videoStreams',[])
+# prefer 720p mp4
+for s in streams:
+    if '720' in s.get('quality','') and 'mp4' in s.get('mimeType',''):
+        print(s['url']); sys.exit(0)
+for s in streams:
+    if '720' in s.get('quality',''):
+        print(s['url']); sys.exit(0)
+# fallback to any video stream
+for s in streams:
+    if s.get('videoOnly') == False and s.get('url'):
+        print(s['url']); sys.exit(0)
+# last resort: any stream
+if streams:
+    print(streams[0].get('url',''))
+" 2>/dev/null)
+                if [ -n "$stream_url" ] && [ "$stream_url" != "" ]; then
+                  echo "Downloading stream via Piped..."
+                  ffmpeg -y -i "$stream_url" -c copy -t 3600 source_video.mp4 2>&1 | tail -5 || true
+                  if [ -f "source_video.mp4" ] && [ -s "source_video.mp4" ]; then
+                    echo "Downloaded via Piped from $INSTANCE"
+                    return 0
+                  fi
+                  rm -f source_video.mp4
+                fi
+              fi
+            done
             return 1
           }
 
-          if cobalt_download "$URL"; then
-            if [ -f "source_video.mp4" ] && [ -s "source_video.mp4" ]; then
-              SIZE=$(ls -lh source_video.mp4 | awk '{print $5}')
-              echo "mode=download" >> "$GITHUB_OUTPUT"
-              echo "=== Downloaded via cobalt: $SIZE ==="
-              exit 0
-            fi
+          if piped_download "$URL"; then
+            SIZE=$(ls -lh source_video.mp4 | awk '{print $5}')
+            echo "mode=download" >> "$GITHUB_OUTPUT"
+            echo "=== Downloaded via Piped: $SIZE ==="
+            exit 0
           fi
 
           echo ""
-          echo "=== Step 3: Try downloading video via yt-dlp ==="
+          echo "=== Step 3: Try yt-dlp ==="
           if yt_dlp_download; then
             SIZE=$(ls -lh source_video.mp4 | awk '{print $5}')
             echo "mode=download" >> "$GITHUB_OUTPUT"
