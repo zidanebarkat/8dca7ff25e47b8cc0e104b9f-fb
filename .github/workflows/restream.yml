@@ -74,20 +74,24 @@ jobs:
           echo "Source: $URL"
           echo "Cookies: $COOKIES"
 
+          UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+
           urls=""
           yt_dlp_resolve() {
-            for CLIENT in mediaconnect mweb android web; do
+            for CLIENT in mweb android; do
               echo "--- HLS try: player_client=$CLIENT ---"
-              urls=$(yt-dlp --extractor-args "youtube:player_client=$CLIENT" $COOKIES --no-check-certificates -g --socket-timeout 30 "$URL" 2>/tmp/yt_err.txt) && [ -n "$urls" ] && echo "HLS OK with client=$CLIENT" && return 0
+              urls=$(yt-dlp --extractor-args "youtube:player_client=$CLIENT" $COOKIES --no-check-certificates --user-agent "$UA" -g --socket-timeout 30 "$URL" 2>/tmp/yt_err.txt) && [ -n "$urls" ] && echo "HLS OK with client=$CLIENT" && return 0
               cat /tmp/yt_err.txt | tail -3
+              echo "Waiting 5s before next attempt..."
+              sleep 5
             done
             return 1
           }
 
           yt_dlp_download() {
-            for CLIENT in mediaconnect mweb android web; do
+            for CLIENT in mweb android; do
               echo "--- Download try: player_client=$CLIENT ---"
-              yt-dlp --extractor-args "youtube:player_client=$CLIENT" $COOKIES --no-check-certificates \
+              yt-dlp --extractor-args "youtube:player_client=$CLIENT" $COOKIES --no-check-certificates --user-agent "$UA" \
                 -f "bestvideo[height<=720]+bestaudio/best[height<=720]/best" \
                 --merge-output-format mp4 -o "source_video.mp4" \
                 "$URL" 2>&1 | tail -5 || true
@@ -96,6 +100,8 @@ jobs:
                 return 0
               fi
               rm -f source_video.mp4
+              echo "Waiting 5s before next attempt..."
+              sleep 5
             done
             return 1
           }
@@ -118,52 +124,7 @@ jobs:
           fi
 
           echo ""
-          echo "=== Step 2: Try Piped API (YouTube proxy) ==="
-          echo 'import sys,json' > pick_stream.py
-          echo 'd=json.load(sys.stdin)' >> pick_stream.py
-          echo 'for s in d.get("videoStreams",[]):' >> pick_stream.py
-          echo '    q=s.get("quality",""); mt=s.get("mimeType","")' >> pick_stream.py
-          echo '    if "720" in q and "mp4" in mt: print(s.get("url","")); sys.exit(0)' >> pick_stream.py
-          echo 'for s in d.get("videoStreams",[]):' >> pick_stream.py
-          echo '    if "720" in s.get("quality",""): print(s.get("url","")); sys.exit(0)' >> pick_stream.py
-          echo 'for s in d.get("videoStreams",[]):' >> pick_stream.py
-          echo '    if not s.get("videoOnly",True) and s.get("url"): print(s.get("url","")); sys.exit(0)' >> pick_stream.py
-          echo 'if d.get("videoStreams"): print(d["videoStreams"][0].get("url",""))' >> pick_stream.py
-          piped_download() {
-            local video_url="$1"
-            local vid=$(echo "$video_url" | grep -oP '(?:v=|live/|youtu\.be/)\K[\w-]+' | head -1)
-            if [ -z "$vid" ]; then echo "No video ID"; return 1; fi
-            echo "Video ID: $vid"
-            for INSTANCE in "pipedapi.kavin.rocks" "api.piped.yt" "pipedapi.adminforge.de" "piped-api.lunar.icu"; do
-              echo "--- Piped: $INSTANCE ---"
-              local resp=$(curl -s --max-time 15 "https://$INSTANCE/streams/$vid" 2>/dev/null)
-              local title=$(echo "$resp" | python3 -c "import sys,json; print(json.load(sys.stdin).get('title',''))" 2>/dev/null)
-              if [ -n "$title" ] && [ "$title" != "" ]; then
-                echo "Title: $title"
-                local stream_url=$(echo "$resp" | python3 pick_stream.py 2>/dev/null)
-                if [ -n "$stream_url" ] && [ "$stream_url" != "" ]; then
-                  echo "Downloading via Piped..."
-                  ffmpeg -y -i "$stream_url" -c copy -t 3600 source_video.mp4 2>&1 | tail -5 || true
-                  if [ -f "source_video.mp4" ] && [ -s "source_video.mp4" ]; then
-                    echo "Downloaded via Piped from $INSTANCE"
-                    return 0
-                  fi
-                  rm -f source_video.mp4
-                fi
-              fi
-            done
-            return 1
-          }
-
-          if piped_download "$URL"; then
-            SIZE=$(ls -lh source_video.mp4 | awk '{print $5}')
-            echo "mode=download" >> "$GITHUB_OUTPUT"
-            echo "=== Downloaded via Piped: $SIZE ==="
-            exit 0
-          fi
-
-          echo ""
-          echo "=== Step 3: Try yt-dlp ==="
+          echo "=== Step 2: Try yt-dlp download ==="
           if yt_dlp_download; then
             SIZE=$(ls -lh source_video.mp4 | awk '{print $5}')
             echo "mode=download" >> "$GITHUB_OUTPUT"
