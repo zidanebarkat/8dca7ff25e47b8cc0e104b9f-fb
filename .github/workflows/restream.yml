@@ -45,8 +45,7 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq --no-install-recommends ffmpeg fonts-dejavu-core curl unzip
           pip install -q yt-dlp curl_cffi
-          curl -fsSL https://deno.land/install.sh | sh || true
-          echo "$HOME/.deno/bin" >> $GITHUB_PATH
+          yt-dlp --version
 
       - name: Setup cookies
         run: |
@@ -55,36 +54,60 @@ jobs:
             echo "$RAW" | base64 -d > cookies.txt 2>/dev/null || echo "$RAW" > cookies.txt
             LINES=$(wc -l < cookies.txt)
             BYTES=$(wc -c < cookies.txt)
-            HEAD=$(head -1 cookies.txt)
-            echo "Cookies: $BYTES bytes, $LINES lines, first line: $HEAD"
+            echo "Cookies: $BYTES bytes, $LINES lines"
+            head -3 cookies.txt
             echo "COOKIES=--cookies cookies.txt" >> $GITHUB_ENV
           else
             echo "COOKIES=" >> $GITHUB_ENV
-            echo "No cookies provided, trying without"
+            echo "No cookies provided"
           fi
 
       - name: Resolve source
         id: resolve
         run: |
-          echo "=== Trying live HLS first ==="
-          echo "COOKIES=$COOKIES"
-          [ -f cookies.txt ] && echo "cookies.txt exists: $(wc -c < cookies.txt) bytes" || echo "No cookies.txt file"
+          URL="${{ inputs.source_url }}"
+          echo "Source: $URL"
+          echo "Cookies: $COOKIES"
+
           urls=""
-          for CLIENT in mweb web android; do
-            echo "--- Trying player_client=$CLIENT ---"
-            urls=$(yt-dlp --extractor-args "youtube:player_client=$CLIENT" $COOKIES -g --socket-timeout 30 "${{ inputs.source_url }}" 2>/tmp/yt_err.txt) || true
-            cat /tmp/yt_err.txt
-            if [ -n "$urls" ]; then
-              echo "SUCCESS with player_client=$CLIENT"
-              break
-            fi
-          done
-          if [ -z "$urls" ]; then
-            echo "--- Trying with impersonate ---"
-            urls=$(yt-dlp --impersonate chrome $COOKIES -g --socket-timeout 30 "${{ inputs.source_url }}" 2>/tmp/yt_err.txt) || true
-            cat /tmp/yt_err.txt
-          fi
-          if [ -n "$urls" ]; then
+          yt_dlp_resolve() {
+            for CLIENT in "" mweb web android tv_embedded; do
+              if [ -n "$CLIENT" ]; then
+                EXTRA="--extractor-args youtube:player_client=$CLIENT"
+              else
+                EXTRA=""
+              fi
+              echo "--- Try: player_client=${CLIENT:-default} ---"
+              urls=$(yt-dlp $EXTRA $COOKIES --no-check-certificates -g --socket-timeout 30 "$URL" 2>/tmp/yt_err.txt) && [ -n "$urls" ] && echo "HLS OK with client=$CLIENT" && return 0
+              # Also try with impersonate as fallback
+              urls=$(yt-dlp $EXTRA $COOKIES --impersonate chrome --no-check-certificates -g --socket-timeout 30 "$URL" 2>/tmp/yt_err.txt) && [ -n "$urls" ] && echo "HLS OK with impersonate+client=$CLIENT" && return 0
+            done
+            return 1
+          }
+
+          yt_dlp_download() {
+            for CLIENT in "" mweb web android tv_embedded; do
+              if [ -n "$CLIENT" ]; then
+                EXTRA="--extractor-args youtube:player_client=$CLIENT"
+              else
+                EXTRA=""
+              fi
+              echo "--- Download try: player_client=${CLIENT:-default} ---"
+              yt-dlp $EXTRA $COOKIES --no-check-certificates \
+                -f "bestvideo[height<=720]+bestaudio/best[height<=720]/best" \
+                --merge-output-format mp4 -o "source_video.mp4" \
+                "$URL" 2>&1 || true
+              if [ -f "source_video.mp4" ] && [ -s "source_video.mp4" ]; then
+                echo "Download OK with client=$CLIENT"
+                return 0
+              fi
+              rm -f source_video.mp4
+            done
+            return 1
+          }
+
+          echo "=== Step 1: Try live HLS ==="
+          if yt_dlp_resolve; then
             count=$(echo "$urls" | wc -l)
             if [ "$count" -ge 2 ]; then
               echo "video_url=$(echo "$urls" | head -1)" >> "$GITHUB_OUTPUT"
@@ -96,23 +119,21 @@ jobs:
               echo "has_separate_audio=false" >> "$GITHUB_OUTPUT"
             fi
             echo "mode=stream" >> "$GITHUB_OUTPUT"
-            echo "live=true" >> "$GITHUB_OUTPUT"
-            echo "Resolved as live stream"
-          else
-            echo "=== Not live, downloading video ==="
-            yt-dlp $COOKIES \
-              -f "bestvideo[height<=720]+bestaudio/best[height<=720]/best" \
-              --merge-output-format mp4 -o "source_video.mp4" \
-              "${{ inputs.source_url }}" 2>&1 || true
-            if [ -f "source_video.mp4" ] && [ -s "source_video.mp4" ]; then
-              echo "mode=download" >> "$GITHUB_OUTPUT"
-              echo "live=true" >> "$GITHUB_OUTPUT"
-              echo "Downloaded video: $(ls -lh source_video.mp4 | awk '{print $5}')"
-            else
-              echo "ERROR: Source not live and download failed. Nothing to stream."
-              exit 1
-            fi
+            echo "=== Resolved as live HLS stream ==="
+            exit 0
           fi
+
+          echo ""
+          echo "=== Step 2: Try downloading video ==="
+          if yt_dlp_download; then
+            SIZE=$(ls -lh source_video.mp4 | awk '{print $5}')
+            echo "mode=download" >> "$GITHUB_OUTPUT"
+            echo "=== Downloaded video: $SIZE ==="
+            exit 0
+          fi
+
+          echo "ERROR: Could not resolve or download source. Check cookies and URL."
+          exit 1
 
       - name: Overlay text updater
         run: |
@@ -175,7 +196,7 @@ jobs:
           echo "$OT" > overlay.txt
 
           FB_URL="${{ inputs.output_url }}"
-          echo "Output URL: $FB_URL (chat: $CHAT)"
+          echo "Output: $FB_URL | Mode: $MODE"
 
           CHAT_FILTER=""
           if [ "$CHAT" = "true" ]; then
