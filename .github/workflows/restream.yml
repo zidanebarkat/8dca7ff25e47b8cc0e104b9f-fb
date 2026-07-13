@@ -45,7 +45,11 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq --no-install-recommends ffmpeg fonts-dejavu-core curl unzip
           pip install -q yt-dlp curl_cffi
+          curl -fsSL https://deno.land/install.sh | sh || true
+          echo "$HOME/.deno/bin" >> $GITHUB_PATH
+          export PATH="$HOME/.deno/bin:$PATH"
           yt-dlp --version
+          deno --version || true
 
       - name: Setup cookies
         run: |
@@ -65,38 +69,28 @@ jobs:
       - name: Resolve source
         id: resolve
         run: |
+          export PATH="$HOME/.deno/bin:$PATH"
           URL="${{ inputs.source_url }}"
           echo "Source: $URL"
           echo "Cookies: $COOKIES"
 
           urls=""
           yt_dlp_resolve() {
-            for CLIENT in "" mweb web android tv_embedded; do
-              if [ -n "$CLIENT" ]; then
-                EXTRA="--extractor-args youtube:player_client=$CLIENT"
-              else
-                EXTRA=""
-              fi
-              echo "--- Try: player_client=${CLIENT:-default} ---"
-              urls=$(yt-dlp $EXTRA $COOKIES --no-check-certificates -g --socket-timeout 30 "$URL" 2>/tmp/yt_err.txt) && [ -n "$urls" ] && echo "HLS OK with client=$CLIENT" && return 0
-              # Also try with impersonate as fallback
-              urls=$(yt-dlp $EXTRA $COOKIES --impersonate chrome --no-check-certificates -g --socket-timeout 30 "$URL" 2>/tmp/yt_err.txt) && [ -n "$urls" ] && echo "HLS OK with impersonate+client=$CLIENT" && return 0
+            for CLIENT in mediaconnect mweb android web; do
+              echo "--- HLS try: player_client=$CLIENT ---"
+              urls=$(yt-dlp --extractor-args "youtube:player_client=$CLIENT" $COOKIES --no-check-certificates -g --socket-timeout 30 "$URL" 2>/tmp/yt_err.txt) && [ -n "$urls" ] && echo "HLS OK with client=$CLIENT" && return 0
+              cat /tmp/yt_err.txt | tail -3
             done
             return 1
           }
 
           yt_dlp_download() {
-            for CLIENT in "" mweb web android tv_embedded; do
-              if [ -n "$CLIENT" ]; then
-                EXTRA="--extractor-args youtube:player_client=$CLIENT"
-              else
-                EXTRA=""
-              fi
-              echo "--- Download try: player_client=${CLIENT:-default} ---"
-              yt-dlp $EXTRA $COOKIES --no-check-certificates \
+            for CLIENT in mediaconnect mweb android web; do
+              echo "--- Download try: player_client=$CLIENT ---"
+              yt-dlp --extractor-args "youtube:player_client=$CLIENT" $COOKIES --no-check-certificates \
                 -f "bestvideo[height<=720]+bestaudio/best[height<=720]/best" \
                 --merge-output-format mp4 -o "source_video.mp4" \
-                "$URL" 2>&1 || true
+                "$URL" 2>&1 | tail -5 || true
               if [ -f "source_video.mp4" ] && [ -s "source_video.mp4" ]; then
                 echo "Download OK with client=$CLIENT"
                 return 0
